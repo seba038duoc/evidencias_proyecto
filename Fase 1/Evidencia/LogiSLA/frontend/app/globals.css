@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f4f6f9;
+  --foreground: #101828;
+
+  /* Paleta de marca — azul marino corporativo, tono "logística/auditoría" */
+  --color-brand-50: #f0f5fb;
+  --color-brand-100: #dce7f3;
+  --color-brand-200: #b9cee6;
+  --color-brand-300: #8dadd0;
+  --color-brand-400: #5c87b4;
+  --color-brand-500: #3c6996;
+  --color-brand-600: #2c517a;
+  --color-brand-700: #223f61;
+  --color-brand-800: #1a3049;
+  --color-brand-900: #142438;
+  --color-brand-950: #0c1622;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-brand-50: var(--color-brand-50);
+  --color-brand-100: var(--color-brand-100);
+  --color-brand-200: var(--color-brand-200);
+  --color-brand-300: var(--color-brand-300);
+  --color-brand-400: var(--color-brand-400);
+  --color-brand-500: var(--color-brand-500);
+  --color-brand-600: var(--color-brand-600);
+  --color-brand-700: var(--color-brand-700);
+  --color-brand-800: var(--color-brand-800);
+  --color-brand-900: var(--color-brand-900);
+  --color-brand-950: var(--color-brand-950);
+
+  --font-sans: "Segoe UI", ui-sans-serif, system-ui, -apple-system, Roboto, Arial, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0b1220;
+    --foreground: #e6eaf0;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}
+
+/* Textura sutil del fondo: una malla muy tenue, para que no quede una
+   página plana de un solo color pero sin distraer del contenido. */
+.page-shell {
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(15, 23, 42, 0.06) 1px, transparent 0);
+  background-size: 22px 22px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .page-shell {
+    background-image:
+      radial-gradient(circle at 1px 1px, rgba(226, 232, 240, 0.06) 1px, transparent 0);
+  }
+}
