@@ -16,13 +16,15 @@ import os
 
 def normalizar_url_base_datos(url: str) -> str:
     """
-    Algunos proveedores de PostgreSQL en la nube (por ejemplo Neon o Heroku)
-    entregan la URL con el esquema "postgres://", que SQLAlchemy 2 no acepta:
-    se cambia por "postgresql://", que usa el driver psycopg2.
+    Los proveedores de PostgreSQL en la nube (por ejemplo Neon o Heroku)
+    entregan la URL como "postgres://..." o "postgresql://...", sin indicar el
+    driver. SQLAlchemy 2.1 usa en ese caso psycopg (versión 3), que LogiSLA no
+    instala: se fija el driver psycopg2, que es el de requirements.txt.
     """
     url = url.strip()
-    if url.startswith("postgres://"):
-        return "postgresql://" + url[len("postgres://") :]
+    for prefijo in ("postgres://", "postgresql://"):
+        if url.startswith(prefijo):
+            return "postgresql+psycopg2://" + url[len(prefijo) :]
     return url
 
 
