@@ -1,0 +1,44 @@
+# Despliegue GRATUITO de LogiSLA en Render (render.com), con las mismas
+# imágenes Docker de la aplicación (HU-20 y HU-28). Render lee este archivo
+# desde la raíz del repositorio ("Blueprint") y crea los dos servicios.
+# Instrucciones: Pruebas/LogiSLA/deploy/LEEME_RENDER.txt
+#
+# - Plan free: sin costo y sin tarjeta. Los servicios se apagan tras 15 minutos
+#   sin uso y tardan cerca de un minuto en volver a responder.
+# - La base de datos es PostgreSQL en Neon (plan gratuito).
+# - Las claves (DATABASE_URL y GEMINI_API_KEY) no están en el repositorio:
+#   Render las pide al crear el Blueprint (sync: false) y las guarda cifradas.
+
+services:
+  - type: web
+    name: logisla-backend
+    runtime: docker
+    plan: free
+    region: oregon
+    rootDir: "Pruebas/LogiSLA/backend"
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL # URL de Neon (postgresql://...?sslmode=require)
+        sync: false
+      - key: GEMINI_API_KEY # clave de Gemini (puede quedar vacía: se usa la plantilla)
+        sync: false
+      - key: CARGAR_DATOS_PRUEBA # transportistas, reglas SLA y empresa piloto
+        value: "1"
+      - key: ALLOWED_ORIGIN_REGEX # autoriza al frontend publicado en Render (CORS)
+        value: https://logisla-frontend[a-z0-9-]*\.onrender\.com
+
+  - type: web
+    name: logisla-frontend
+    runtime: docker
+    plan: free
+    region: oregon
+    rootDir: "Pruebas/LogiSLA/frontend"
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    envVars:
+      # Dirección pública del backend. Render la entrega al Dockerfile como
+      # argumento de compilación (Next.js la incorpora al código del navegador).
+      - key: NEXT_PUBLIC_API_URL
+        sync: false

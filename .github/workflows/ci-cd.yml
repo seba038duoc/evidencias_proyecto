@@ -1,0 +1,234 @@
+# CI/CD de LogiSLA (HU-22). Se ejecuta en cada push y pull request.
+#
+#   CI  1. backend-sqlite    pruebas del backend con SQLite y cobertura
+#       2. backend-postgres  las mismas pruebas y las migraciones de Alembic sobre PostgreSQL 16
+#       3. frontend          pruebas unitarias del frontend y compilación de producción de Next.js
+#       4. e2e               Playwright recorre la aplicación completa en un navegador real
+#       5. docker            construye las imágenes, levanta docker compose (PostgreSQL,
+#                            backend y frontend) y audita la planilla piloto en contenedores
+#   CD  6. entrega           si todo pasa en main, publica el paquete de la aplicación
+#                            (y una Release de GitHub cuando se crea una etiqueta v*)
+#
+# La aplicación está en la carpeta indicada en "working-directory" de cada trabajo.
+# Si se mueve, cambiar esa ruta (aparece en cada trabajo) y APP_DIR.
+
+name: CI/CD
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  APP_DIR: "Pruebas/LogiSLA"
+
+jobs:
+  backend-sqlite:
+    name: Backend (SQLite)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: "Pruebas/LogiSLA/backend"
+    env:
+      DATABASE_URL: "sqlite:///./ci.db"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+      - name: Pruebas (IA simulada, Claude y Gemini; no usa claves ni internet)
+        run: python -m pytest -v --cov=app --cov-report=term
+
+  backend-postgres:
+    name: Backend (PostgreSQL 16 + Alembic)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: "Pruebas/LogiSLA/backend"
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: logisla
+          POSTGRES_PASSWORD: logisla
+          POSTGRES_DB: logisla
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U logisla"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: "postgresql+psycopg2://logisla:logisla@localhost:5432/logisla"
+      TEST_DATABASE_URL: "postgresql+psycopg2://logisla:logisla@localhost:5432/logisla"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+      - name: Pruebas sobre PostgreSQL (incluye las de migraciones)
+        run: python -m pytest -v
+      - name: Migrar una base nueva y cargar datos de prueba
+        run: |
+          python scripts/migrar.py
+          python scripts/seed_carriers_and_rules.py
+          python scripts/seed_pilot_company.py "Retail Piloto SpA" "76.987.654-3"
+          python -m alembic current
+
+  frontend:
+    name: Frontend (pruebas unitarias y build de producción)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: "Pruebas/LogiSLA/frontend"
+    env:
+      NEXT_PUBLIC_API_URL: "http://127.0.0.1:8000"
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Instalar dependencias
+        run: npm install --no-audit --no-fund
+      - name: Pruebas unitarias del frontend (HU-27)
+        run: npm test
+      - name: Compilar
+        run: npm run build
+
+  e2e:
+    name: Pruebas E2E (Playwright)
+    runs-on: ubuntu-latest
+    needs: [backend-sqlite, frontend]
+    env:
+      DATABASE_URL: "sqlite:///./e2e.db"
+      NEXT_PUBLIC_API_URL: "http://127.0.0.1:8000"
+      NEXT_TELEMETRY_DISABLED: "1"
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Backend - instalar, migrar, datos de prueba y levantar
+        working-directory: "Pruebas/LogiSLA/backend"
+        run: |
+          pip install -r requirements.txt
+          python scripts/migrar.py
+          python scripts/seed_carriers_and_rules.py
+          python scripts/seed_pilot_company.py "Retail Piloto SpA" "76.987.654-3"
+          nohup python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 > backend.log 2>&1 &
+
+      - name: Frontend - instalar, compilar y levantar
+        working-directory: "Pruebas/LogiSLA/frontend"
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+          nohup npm run start -- --port 3000 > frontend.log 2>&1 &
+
+      - name: Esperar a que ambos respondan
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8000/health > /dev/null && curl -sf http://localhost:3000 > /dev/null; then
+              echo "Backend y frontend listos"; exit 0
+            fi
+            sleep 2
+          done
+          echo "No arrancaron a tiempo"; exit 1
+
+      - name: Playwright - instalar y ejecutar
+        working-directory: "Pruebas/LogiSLA/e2e"
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+          npx playwright test
+
+      - name: Guardar reporte y registros si algo falla
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reporte-e2e
+          path: |
+            ${{ env.APP_DIR }}/e2e/playwright-report
+            ${{ env.APP_DIR }}/e2e/test-results
+            ${{ env.APP_DIR }}/backend/backend.log
+            ${{ env.APP_DIR }}/frontend/frontend.log
+          retention-days: 14
+
+  docker:
+    name: Docker (imágenes y docker compose)
+    runs-on: ubuntu-latest
+    needs: [backend-sqlite, frontend]
+    defaults:
+      run:
+        working-directory: "Pruebas/LogiSLA"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Construir las imágenes del backend y del frontend
+        run: docker compose build
+      - name: Levantar PostgreSQL, backend y frontend
+        run: docker compose up -d
+      - name: Esperar a que respondan
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8000/health > /dev/null && curl -sf http://localhost:3000 > /dev/null; then
+              echo "Contenedores listos"; exit 0
+            fi
+            sleep 3
+          done
+          echo "No arrancaron a tiempo"; exit 1
+      - name: Auditar la planilla piloto dentro de los contenedores
+        run: |
+          curl -sf http://localhost:3000 | grep -q "LogiSLA"
+          EMPRESA=$(curl -sf http://localhost:8000/api/v1/empresas | python3 -c "import json,sys; print(json.load(sys.stdin)[0]['id'])")
+          LOTE=$(curl -sf -F "file=@backend/sample_data/envios_piloto.csv" \
+            "http://localhost:8000/api/v1/lotes-auditoria/cargar?empresa_id=$EMPRESA" \
+            | python3 -c "import json,sys; print(json.load(sys.stdin)['lote_id'])")
+          curl -sf -X POST "http://localhost:8000/api/v1/lotes-auditoria/$LOTE/auditar" | tee auditoria.json
+          python3 -c "import json; a = json.load(open('auditoria.json')); assert a['monto_multa_total'] == 170000, a; print('OK: 170000 pesos en multas')"
+      - name: Registros de los contenedores si algo falla
+        if: failure()
+        run: docker compose logs
+      - name: Apagar
+        if: always()
+        run: docker compose down -v
+
+  entrega:
+    name: Entrega continua (paquete de la aplicación)
+    runs-on: ubuntu-latest
+    needs: [backend-sqlite, backend-postgres, frontend, e2e, docker]
+    if: github.event_name != 'pull_request' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/v'))
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Armar el paquete (sin dependencias instaladas ni archivos privados)
+        run: |
+          mkdir -p dist
+          NOMBRE="LogiSLA-${GITHUB_REF_NAME//\//-}-${GITHUB_SHA::7}"
+          echo "NOMBRE=$NOMBRE" >> "$GITHUB_ENV"
+          cd "$APP_DIR"
+          zip -r "$GITHUB_WORKSPACE/dist/$NOMBRE.zip" . \
+            -x "*/node_modules/*" "*/.venv/*" "*/.next/*" "*/__pycache__/*" "*.env" "*.db" "*.log"
+          ls -la "$GITHUB_WORKSPACE/dist"
+      - name: Publicar el paquete como artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.NOMBRE }}
+          path: dist/*.zip
+          retention-days: 90
+      - name: Crear la Release (solo con etiquetas v*, por ejemplo v1.0.0)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true

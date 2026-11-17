@@ -1,0 +1,38 @@
+# --- Backend (Python) ---
+backend/.venv/
+__pycache__/
+*.pyc
+backend/.env
+backend/logisla.db
+backend/*.db
+backend/.pytest_cache/
+backend/.coverage
+backend/htmlcov/
+
+# --- Registros y archivos generados por iniciar.bat ---
+debug_trace.txt
+backend/install.log
+backend/company_id.txt
+backend/seed_empresa.log
+backend/seed_reglas.log
+frontend/install.log
+backend/servidor.log
+backend/migracion.log
+frontend/servidor.log
+
+# --- Frontend (además de frontend/.gitignore) ---
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
+
+# --- Sistema operativo y editores ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# --- Otros entornos y bases locales ---
+venv/
+.env
+*.sqlite
+*.sqlite3

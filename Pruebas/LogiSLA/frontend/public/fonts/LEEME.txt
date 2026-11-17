@@ -1,0 +1,15 @@
+Fuentes locales de LogiSLA
+
+Archivo-Variable.ttf  (logo "LogiSLA" de la cabecera)
+  Licencia libre SIL Open Font License 1.1 (ver Archivo-OFL.txt).
+
+Carade.ttf  (títulos del carrusel de la portada)
+  Autor: Din Studio (dafont.com). Licencia: uso personal, no comercial.
+
+GillSansMT-Regular / Italic / Bold / BoldItalic.ttf  (textos de toda la aplicación)
+  Gill Sans MT, de Monotype, incluida con Microsoft Office.
+
+Carade y Gill Sans MT no tienen licencia para publicarse: este proyecto debe
+quedar en un repositorio PRIVADO de GitHub.
+Las fuentes se declaran en fuentes.css. Si algún archivo falta, la aplicación
+usa Georgia para los títulos y Archivo para los textos, y todo sigue funcionando.
